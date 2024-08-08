@@ -9,9 +9,32 @@ on:
       - main
 
 jobs:
-  build:
+  # Machine Learning Stages
+  lint:
+    name: Lint Code
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
 
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.8
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Lint code
+        run: |
+          flake8 .
+
+  test:
+    name: Run Unit Tests
+    runs-on: ubuntu-latest
+    needs: lint
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
@@ -30,6 +53,114 @@ jobs:
         run: |
           pytest
 
+  data_wrangling:
+    name: Data Wrangling
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.8
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Data Wrangling
+        run: |
+          python data_wrangling.py  # Assuming data_wrangling.py is the script for data wrangling
+
+      - name: Save data artifact
+        run: |
+          mkdir -p artifacts
+          cp wrangled_data.csv artifacts/  # Assuming wrangled_data.csv is the output of the data wrangling process
+        uses: actions/upload-artifact@v2
+        with:
+          name: data-artifact
+          path: artifacts/wrangled_data.csv
+
+  train:
+    name: Train Model
+    runs-on: ubuntu-latest
+    needs: data_wrangling
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.8
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Download data artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: data-artifact
+          path: artifacts
+
+      - name: Train model
+        run: |
+          python train_model.py  # Assuming train_model.py is the script for training model
+
+      - name: Save model artifact
+        run: |
+          mkdir -p artifacts
+          cp model.pkl artifacts/  # Assuming model.pkl is trained model file
+        uses: actions/upload-artifact@v2
+        with:
+          name: model-artifact
+          path: artifacts/model.pkl
+
+  evaluate:
+    name: Evaluate Model
+    runs-on: ubuntu-latest
+    needs: train
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.8
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Download model artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: model-artifact
+          path: artifacts
+
+      - name: Evaluate model
+        run: |
+          python evaluate_model.py  # Assuming evaluate_model.py is the script for evaluating model
+
+  # MLOps Stages
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: evaluate
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
       - name: Build Docker image
         run: |
           docker build . -t my-model:latest
@@ -45,7 +176,8 @@ jobs:
           docker tag my-model:latest ${{ secrets.DOCKER_HUB_USERNAME }}/my-model:latest
           docker push ${{ secrets.DOCKER_HUB_USERNAME }}/my-model:latest
 
-  deploy:
+  deploy_dev:
+    name: Deploy to Development
     runs-on: ubuntu-latest
     needs: build
     steps:
@@ -58,4 +190,48 @@ jobs:
 
       - name: Run Docker container
         run: |
+          docker run -d -p 8080:80 --name my-model-dev ${{ secrets.DOCKER_HUB_USERNAME }}/my-model:latest
+
+      - name: Evaluate deployment
+        run: |
+          python evaluate_deployment.py --env dev  # Assuming evaluate_deployment.py script checks the deployment
+
+  deploy_staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: deploy_dev
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Pull Docker image from Docker Hub
+        run: |
+          docker pull ${{ secrets.DOCKER_HUB_USERNAME }}/my-model:latest
+
+      - name: Run Docker container
+        run: |
+          docker run -d -p 8081:80 --name my-model-staging ${{ secrets.DOCKER_HUB_USERNAME }}/my-model:latest
+
+      - name: Evaluate deployment
+        run: |
+          python evaluate_deployment.py --env staging  # Assuming evaluate_deployment.py script checks the deployment
+
+  deploy_prod:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: deploy_staging
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Pull Docker image from Docker Hub
+        run: |
+          docker pull ${{ secrets.DOCKER_HUB_USERNAME }}/my-model:latest
+
+      - name: Run Docker container
+        run: |
           docker run -d -p 80:80 --name my-model-prod ${{ secrets.DOCKER_HUB_USERNAME }}/my-model:latest
+
+      - name: Evaluate deployment
+        run: |
+          python evaluate_deployment.py --env prod  # Assuming evaluate_deployment.py script checks the deployment
