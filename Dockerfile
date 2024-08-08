@@ -10,6 +10,9 @@ COPY . /app
 # Install any needed packages specified in requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Install Gunicorn for running the Flask app
+RUN pip install gunicorn
+
 # Stage 2: Build the Nginx container
 FROM nginx:alpine
 
@@ -25,6 +28,5 @@ EXPOSE 80
 # Set the working directory
 WORKDIR /app
 
-# Run the Flask app using gunicorn
-RUN pip install gunicorn
+# Run the Flask app using Gunicorn
 CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:5000", "inference:app"]
